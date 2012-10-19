@@ -33,7 +33,7 @@ sub _load_modules {
         my $module_md5 = 'mod_'.md5_hex($module.$version); 
 
         my ($module_file) = grep { $_->version eq $version } @modules;
-        confess "unable to find file containing module $module"
+        confess "unable to find file containing module $module (version $version)"
             unless $module_file;
 
         my $file_content = do {
