@@ -30,9 +30,12 @@ sub _load_modules {
         next if module_name($module => $version);
 
         my @modules = Module::Info->all_installed($module);
-        my ($module_file) = grep { $_->version eq $version } @modules;
         my $module_md5 = 'mod_'.md5_hex($module.$version); 
- 
+
+        my ($module_file) = grep { $_->version eq $version } @modules;
+        confess "unable to find file containing module $module"
+            unless $module_file;
+
         my $file_content = do {
             local $/;
             my $file = $module_file->file;
