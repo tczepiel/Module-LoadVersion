@@ -1,74 +1,100 @@
-package Module::LoadVersion;
-
-use strict;
-use warnings;
-
-use Digest::MD5 qw(md5_hex);
-use Module::Info;
-use Carp qw(confess carp);
-
-our $VERSION = '0.1';
-
-our %loaded_modules;
-
 # ABSTRACT: Load specific module version from your @INC
+package Module::LoadVersion 0.1 {
 
-sub import {
-    shift;
-    _check_args(@_);
-    _load_modules(@_);
-}
+    use 5.014;
+    use strict;
+    use warnings;
 
-sub _load_modules {
-    my %modules = @_;
+    our $VERSION = "0.01";
 
-    while ( my ( $module, $version ) = each %modules ) {
+    use Package::Stash;
+    use Digest::MD5 qw(md5_hex);
+    use Module::Info;
+    use Carp qw(confess carp);
 
-        confess "module version not defined for $module"
-            unless $version;
+    our %loaded_modules;
 
-        next if module_name($module => $version);
+    sub import {
+        shift;
+        _check_args(@_);
+        _load_modules(@_);
+    }
 
-        my @modules = Module::Info->all_installed($module);
-        my $module_md5 = 'mod_'.md5_hex($module.$version); 
+    sub _load_modules {
+        my %modules = @_;
 
-        my ($module_file) = grep { $_->version eq $version } @modules;
-        confess "unable to find file containing module $module (version $version)"
-            unless $module_file;
+        while ( my ( $module, $version ) = each %modules ) {
 
-        my $file_content = do {
-            local $/;
-            my $file = $module_file->file;
-            open my $fh, '<', $file or die "cannot open file $file : $!";
-            <$fh>;
+            confess "module version not defined for $module"
+                unless $version;
+
+            next if module_name($module => $version);
+
+            my @modules = Module::Info->all_installed($module);
+            my $module_md5 = 'mod_'.md5_hex($module.$version); 
+
+            my ($module_file) = grep { $_->version eq $version } @modules;
+            confess "unable to find file containing module $module (version $version)"
+                unless $module_file;
+
+            my $file_content = do {
+                local $/;
+                my $file = $module_file->file;
+                open my $fh, '<', $file or die "cannot open file $file : $!";
+                <$fh>;
+            };
+
+            $file_content =~ s/package $module/package $module_md5/;
+            eval "$file_content" or do {
+                confess "failed to load module $module : $@";
+            };
+
+            $loaded_modules{ $module.$version } = $module_md5;
+
+            my $stash      = Package::Stash->new($module_md5);
+            my $has_import = $stash->has_symbol('&import');
+
+            _handle_import($module_md5,$stash) if $has_import;
+        }
+    }
+
+    sub _handle_import {
+        my ($module,$stash) = @_;
+
+        my $import = $module->can('import');
+        $stash->remove_symbol('&import');
+
+        my $sub = sub {
+            my @in = @_;
+
+            $^H{foo} = 1;
+            goto &$import;
+
         };
 
-        $file_content =~ s/package $module/package $module_md5/;
-        eval "$file_content" or do {
-            confess "failed to load module $module : $@";
-        };
+        $stash->add_symbol('&import',$sub);
 
-        $loaded_modules{ $module.$version } = $module_md5;
+
     }
-}
 
-sub _check_args {
-    if ( @_ % 2 ) {
-        confess "Incorrect use, got @_";
+    sub _check_args {
+        if ( @_ % 2 ) {
+            confess "Incorrect use, got @_";
+        }
     }
-}
 
-sub load_module {
-    shift if @_ % 2;
-    my ( $module, $version ) = @_;
+    sub load_module {
+        shift if @_ % 2;
+        my ( $module, $version ) = @_;
 
-    _load_modules($module => $version);
-    return module_name($module => $version );
-}
+        _load_modules($module => $version);
+        return module_name($module => $version );
+    }
 
-sub module_name {
-    shift if @_ % 2;
-    return $loaded_modules{$_[0].$_[1]}; 
+    sub module_name {
+        shift if @_ % 2;
+        return $loaded_modules{$_[0].$_[1]}; 
+    }
 }
 
 =head1 NAME
@@ -97,7 +123,7 @@ use Module::LoadVersion;
 
 my $foo = Module::LoadVersion->load_module(Foo => 0.1);
 
-my $foot2 = Module::LoadVersion->load_module(Foo => 0.2);
+my $foo2 = Module::LoadVersion->load_module(Foo => 0.2);
 
 $foo->foo; # bar
 
